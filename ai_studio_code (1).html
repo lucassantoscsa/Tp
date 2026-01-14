@@ -2,12 +2,12 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teleprompter Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Teleprompter Pro V2</title>
     <style>
         :root {
             --primary: #2563eb;
-            --dark: #1e1e1e;
+            --dark: #121212;
         }
 
         body, html {
@@ -15,26 +15,289 @@
             padding: 0;
             width: 100%;
             height: 100%;
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Roboto, sans-serif;
             background-color: var(--dark);
             color: white;
             overflow: hidden;
         }
 
-        /* Tela de Configuração */
+        /* Configuração Inicial */
         #setup-screen {
             padding: 20px;
             display: flex;
             flex-direction: column;
-            height: 100%;
+            height: 100vh;
             box-sizing: border-box;
+            overflow-y: auto;
         }
 
         .logo-container {
             text-align: center;
+            margin: 20px 0;
+        }
+
+        /* Estilização da Logo (Desenho do usuário) */
+        .user-logo {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: 4px solid var(--primary);
+            background-color: #333;
+            /* Substitua 'logo-joinha.png' pelo seu desenho */
+            background-image: url('logo-joinha.png'); 
+            background-size: cover;
+            background-position: center;
+            display: inline-block;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        textarea {
+            flex-grow: 1;
+            min-height: 200px;
+            background: #1e1e1e;
+            color: white;
+            border: 2px solid #333;
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 16px;
             margin-bottom: 20px;
         }
 
+        .controls {
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .speed-label { display: flex; justify-content: space-between; font-size: 14px; }
+
+        input[type="range"] { width: 100%; margin: 10px 0; }
+
+        .btn-start {
+            padding: 18px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: bold;
+            font-size: 18px;
+            margin-top: 10px;
+        }
+
+        /* Tela do Gravador */
+        #prompter-screen {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: black;
+        }
+
+        #video-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Espelho para câmera frontal */
+        }
+
+        /* Overlay do Teleprompter */
+        #text-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.3); /* Fundo sutil para legibilidade */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #scroll-container {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            padding: 20px;
+        }
+
+        #scrolling-text {
+            position: absolute;
+            top: 0; /* Começa da primeira linha no topo */
+            left: 5%;
+            width: 90%;
+            font-size: 26px;
+            line-height: 1.6;
+            font-weight: 700;
+            text-align: center;
+            color: #ffffff;
+            text-shadow: 2px 2px 8px rgba(0,0,0,1);
+            white-space: pre-wrap;
+        }
+
+        /* Botão de Parar */
+        .btn-stop {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 40px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        }
+
+        .rec-dot {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(239, 68, 68, 0.8);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- SETUP -->
+    <div id="setup-screen">
+        <div class="logo-container">
+            <div class="user-logo"></div>
+            <h2>Teleprompter Cam</h2>
+        </div>
+        
+        <textarea id="text-input" placeholder="Digite ou cole seu roteiro aqui...">Olá! Este é o seu novo teleprompter. O texto começará da primeira linha e você pode controlar a velocidade abaixo.</textarea>
+        
+        <div class="controls">
+            <div class="speed-label">
+                <span>Velocidade</span>
+                <span id="speed-value">1.0x</span>
+            </div>
+            <input type="range" id="speed-slider" min="0.2" max="3.0" step="0.1" value="0.8">
+            <button class="btn-start" onclick="initApp()">GRAVAR AGORA</button>
+        </div>
+    </div>
+
+    <!-- GRAVADOR -->
+    <div id="prompter-screen">
+        <video id="video-preview" autoplay playsinline muted></video>
+        
+        <div id="text-overlay">
+            <div class="rec-dot">● REC</div>
+            <div id="scroll-container">
+                <div id="scrolling-text"></div>
+            </div>
+        </div>
+
+        <button class="btn-stop" onclick="stopAll()">SALVAR VÍDEO</button>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let recordedChunks = [];
+        let animationId;
+        let currentY = 0;
+
+        // Atualiza o texto do slider
+        document.getElementById('speed-slider').oninput = function() {
+            document.getElementById('speed-value').innerText = this.value + 'x';
+        };
+
+        async function initApp() {
+            const text = document.getElementById('text-input').value;
+            if(!text) return alert("Insira um texto primeiro.");
+
+            try {
+                // Solicita resolução máxima da câmera
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: "user",
+                        width: { ideal: 4096 }, // Tenta 4K
+                        height: { ideal: 2160 }
+                    },
+                    audio: true
+                });
+
+                document.getElementById('setup-screen').style.display = 'none';
+                document.getElementById('prompter-screen').style.display = 'block';
+
+                const video = document.getElementById('video-preview');
+                video.srcObject = stream;
+
+                // Prepara o texto
+                const display = document.getElementById('scrolling-text');
+                display.innerText = text;
+                currentY = 0; // Reseta posição para o topo (primeira linha)
+                display.style.top = '0px';
+
+                // Configura Gravação (mantendo resolução nativa)
+                const options = { mimeType: 'video/webm;codecs=vp8,opus' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    delete options.mimeType; // Fallback para padrão se VP8 não suportado
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+                mediaRecorder.onstop = downloadVideo;
+                
+                mediaRecorder.start();
+                
+                // Pequeno delay para o usuário se preparar antes de rolar
+                setTimeout(startScrolling, 1500);
+
+            } catch (err) {
+                alert("Erro: " + err.message);
+            }
+        }
+
+        function startScrolling() {
+            const display = document.getElementById('scrolling-text');
+            const containerHeight = document.getElementById('scroll-container').offsetHeight;
+            
+            function move() {
+                const speed = parseFloat(document.getElementById('speed-slider').value);
+                currentY -= speed; // Move para cima
+                
+                display.style.top = currentY + 'px';
+
+                // Para quando o texto todo passar da tela
+                if (Math.abs(currentY) < display.offsetHeight + containerHeight) {
+                    animationId = requestAnimationFrame(move);
+                }
+            }
+            animationId = requestAnimationFrame(move);
+        }
+
+        function stopAll() {
+            cancelAnimationFrame(animationId);
+            mediaRecorder.stop();
+            
+            const stream = document.getElementById('video-preview').srcObject;
+            stream.getTracks().forEach(track => track.stop());
+            
+            document.getElementById('prompter-screen').style.display = 'none';
+            document.getElementById('setup-screen').style.display = 'flex';
+        }
+
+        function downloadVideo() {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `gravacao-${Date.now()}.webm`;
+            a.click();
+            recordedChunks = [];
+        }
+    </script>
+</body>
+</html>
         .logo-placeholder {
             width: 100px;
             height: 100px;
