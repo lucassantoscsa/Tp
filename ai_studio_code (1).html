@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teleprompter Pro</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --dark: #1e1e1e;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: sans-serif;
+            background-color: var(--dark);
+            color: white;
+            overflow: hidden;
+        }
+
+        /* Tela de Configuração */
+        #setup-screen {
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .logo-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .logo-placeholder {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: #444;
+            display: inline-block;
+            border: 3px solid var(--primary);
+            /* Aqui você colocaria a imagem do desenho */
+            background-image: url('sua-logo-aqui.png'); 
+            background-size: cover;
+        }
+
+        textarea {
+            flex-grow: 1;
+            background: #333;
+            color: white;
+            border: 1px solid #555;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 16px;
+            resize: none;
+        }
+
+        .controls {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        button {
+            padding: 15px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        /* Tela do Teleprompter */
+        #prompter-screen {
+            display: none;
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        #video-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Espelhar câmera frontal */
+        }
+
+        #text-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 50%; /* Texto fica na metade superior para olhar perto da câmera */
+            overflow: hidden;
+            background: rgba(0, 0, 0, 0.4);
+            pointer-events: none;
+        }
+
+        #scrolling-text {
+            position: absolute;
+            width: 90%;
+            left: 5%;
+            top: 100%;
+            font-size: 28px;
+            line-height: 1.5;
+            text-align: center;
+            color: #fff;
+            text-shadow: 2px 2px 4px #000;
+            font-weight: bold;
+        }
+
+        .action-buttons {
+            position: absolute;
+            bottom: 30px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .btn-stop { background: #ef4444; }
+        
+        #recording-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: red;
+            font-weight: bold;
+            display: none;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .dot { height: 10px; width: 10px; background-color: red; border-radius: 50%; display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <!-- TELA INICIAL -->
+    <div id="setup-screen">
+        <div class="logo-container">
+            <!-- Representação da sua logo com o desenho fazendo joinha -->
+            <div class="logo-placeholder" id="user-logo"></div>
+            <h3>Teleprompter Mobile</h3>
+        </div>
+        
+        <textarea id="text-input" placeholder="Cole seu texto aqui..."></textarea>
+        
+        <div class="controls">
+            <label>Velocidade de Rolagem:</label>
+            <input type="range" id="speed-slider" min="1" max="10" value="3">
+            <button onclick="startPrompter()">INICIAR GRAVAÇÃO</button>
+        </div>
+    </div>
+
+    <!-- TELA DE GRAVAÇÃO -->
+    <div id="prompter-screen">
+        <div id="recording-indicator"><span class="dot"></span> REC</div>
+        <video id="video-preview" autoplay playsinline muted></video>
+        
+        <div id="text-overlay">
+            <div id="scrolling-text"></div>
+        </div>
+
+        <div class="action-buttons">
+            <button class="btn-stop" onclick="stopRecording()">PARAR E SALVAR</button>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let recordedChunks = [];
+        let scrollInterval;
+        let currentPos = 100;
+
+        async function startPrompter() {
+            const text = document.getElementById('text-input').value;
+            if (!text) {
+                alert("Por favor, insira um texto.");
+                return;
+            }
+
+            try {
+                // Pedir permissão da câmera e áudio
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" }, 
+                    audio: true 
+                });
+
+                document.getElementById('setup-screen').style.display = 'none';
+                document.getElementById('prompter-screen').style.display = 'block';
+
+                const video = document.getElementById('video-preview');
+                video.srcObject = stream;
+
+                // Configurar Texto
+                const displayDiv = document.getElementById('scrolling-text');
+                displayDiv.innerText = text;
+                
+                // Configurar Gravação
+                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+                mediaRecorder.onstop = saveVideo;
+                
+                // Iniciar
+                mediaRecorder.start();
+                document.getElementById('recording-indicator').style.display = 'flex';
+                startScrolling();
+
+            } catch (err) {
+                alert("Erro ao acessar câmera: " + err);
+            }
+        }
+
+        function startScrolling() {
+            const displayDiv = document.getElementById('scrolling-text');
+            const speed = document.getElementById('speed-slider').value;
+            
+            // Ajuste fino da velocidade baseado no slider
+            const pixelsPerFrame = speed / 2;
+
+            function animate() {
+                if (document.getElementById('prompter-screen').style.display === 'none') return;
+                
+                currentPos -= pixelsPerFrame;
+                displayDiv.style.top = currentPos + 'px';
+                
+                // Se o texto acabar, para ou reinicia (opcional)
+                if (currentPos < -displayDiv.offsetHeight) {
+                    currentPos = 100; // Reinicia se quiser
+                }
+                
+                requestAnimationFrame(animate);
+            }
+            requestAnimationFrame(animate);
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            const stream = document.getElementById('video-preview').srcObject;
+            const tracks = stream.getTracks();
+            tracks.forEach(track => track.stop());
+            
+            document.getElementById('prompter-screen').style.display = 'none';
+            document.getElementById('setup-screen').style.display = 'flex';
+            currentPos = 100;
+        }
+
+        function saveVideo() {
+            const blob = new Blob(recordedChunks, { type: 'video/webm' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            document.body.appendChild(a);
+            a.style = 'display: none';
+            a.href = url;
+            a.download = 'meu-video-teleprompter.webm';
+            a.click();
+            window.URL.revokeObjectURL(url);
+            recordedChunks = [];
+        }
+    </script>
+</body>
+</html>
